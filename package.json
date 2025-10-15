@@ -1,0 +1,52 @@
+{
+	"name": "openauth-deployment",
+	"description": "Deploy an OpenAuth server on Cloudflare Workers.",
+	"private": true,
+	"cloudflare": {
+		"label": "OpenAuth Server",
+		"products": [
+			"Workers",
+			"D1",
+			"KV"
+		],
+		"categories": [],
+		"preview_icon_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/5764e3ad-0e07-4873-1139-39ba4e6ab200/public",
+		"preview_image_url": "https://imagedelivery.net/wSMYJvS3Xw-n339CbDyDIA/40ce8067-10e9-4bc8-d296-fe18b3c05d00/preview",
+		"publish": true
+	},
+	"dependencies": {
+		"@openauthjs/openauth": "0.4.3",
+		"valibot": "^1.0.0-beta.9"
+	},
+	"devDependencies": {
+		"typescript": "5.8.3",
+		"wrangler": "4.21.x"
+	},
+	"scripts": {
+		"cf-typegen": "wrangler types",
+		"check": "npm run build && wrangler deploy --dry-run",
+		"deploy": "npm run build && wrangler deploy",
+		"deploy:dev": "npm run build && wrangler deploy --name openauth-dev",
+		"deploy:prod": "npm run build && wrangler deploy --name openauth-prod",
+		"dev": "wrangler dev",
+		"predeploy": "wrangler d1 migrations apply AUTH_DB --remote",
+		"migrate": "wrangler d1 migrations apply AUTH_DB --remote",
+		"migrate:local": "wrangler d1 migrations apply AUTH_DB --local",
+		"db:create": "wrangler d1 create",
+		"kv:create": "wrangler kv namespace create AUTH_STORAGE",
+		"secrets:set": "wrangler secret put",
+		"secrets:list": "wrangler secret list",
+		"logs": "wrangler tail",
+		"logs:dev": "wrangler tail --name openauth-dev",
+		"db:query": "wrangler d1 execute AUTH_DB --remote --command",
+		"db:tables": "wrangler d1 execute AUTH_DB --remote --command \"SELECT name FROM sqlite_master WHERE type='table';\"",
+		"db:users": "wrangler d1 execute AUTH_DB --remote --command \"SELECT * FROM user LIMIT 10;\"",
+		"test:health": "curl https://your-worker.workers.dev/health",
+		"test:auth": "curl https://your-worker.workers.dev/authorize?client_id=test&redirect_uri=http://localhost:3000/callback&response_type=code",
+		"setup": "npm run db:create && npm run kv:create && npm run secrets:set",
+		"setup:secrets": "echo 'Setting up secrets...' && wrangler secret put GOOGLE_CLIENT_ID && wrangler secret put GOOGLE_CLIENT_SECRET",
+		"test:deploy": "npm run build && wrangler deploy --dry-run",
+		"build": "tsc",
+		"clean": "rm -rf dist"
+	}
+}
