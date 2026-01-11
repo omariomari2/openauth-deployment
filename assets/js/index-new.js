@@ -837,7 +837,12 @@ function initVisualFilter() {
     // Ensure correct initial filter state on the Work page to avoid flash/lag
     if ($('#work').length) {
       // Disable clicks on non-navigating items (design/work experience + certifications)
+      // BUT allow modal links (with data-description) to work
       $(document).on('click', '#work .work-items li.design a, #work .work-items li.certification a, #work .work-tiles li.design a, #work .work-tiles li.certification a', function(e){
+        // Allow modal to open if link has data-description
+        if ($(this).attr('data-description')) {
+          return; // Let the modal handler process this
+        }
         e.preventDefault();
         e.stopImmediatePropagation();
         return false;
@@ -1473,23 +1478,21 @@ function initProjectModal() {
     const closeBtn = modal.querySelector('#closeModal');
 
     function openModal(e) {
-        const link = e.currentTarget;
+        const link = e.currentTarget || (e.target && e.target.closest('a[data-description]'));
+        if (!link) return;
+        
         const description = link.getAttribute('data-description');
         
-        // Only open modal if description exists
         if (description) {
-            e.preventDefault();
+            if (e.preventDefault) e.preventDefault();
+            if (e.stopPropagation) e.stopPropagation();
             
-            // Get content from the link
             const titleElement = link.querySelector('h4 span');
             const title = titleElement ? titleElement.textContent : 'Project';
             
-            // Try to find tools text. In list view it's the last p.
             let tools = '';
             const pTags = link.querySelectorAll('p');
             if (pTags.length > 0) {
-                // In list view: Role/Project is p[0], Tech is p[1] (sometimes)
-                // Let's assume the last paragraph usually contains the tech stack or category
                 tools = pTags[pTags.length - 1].textContent;
             }
 
@@ -1503,7 +1506,6 @@ function initProjectModal() {
                 modalDescription.textContent = description;
             }
             
-            // Handle external link
             const href = link.getAttribute('href');
             if (href && href !== '#' && !href.startsWith('javascript')) {
                 modalLink.href = href;
@@ -1514,36 +1516,35 @@ function initProjectModal() {
             }
 
             modal.classList.add('active');
-            // document.body.style.overflow = 'hidden'; // Can conflict with locomotive scroll
         }
     }
 
     function closeModal() {
         modal.classList.remove('active');
-        // document.body.style.overflow = '';
     }
 
-    // Attach click listeners to project links with data-description
-    // We delegate to document to handle potential dynamic content or Barba transitions issues if re-init isn't perfect
-    // But since we call initProjectModal in initScript, direct attachment is fine if elements exist.
-    // However, keeping it robust:
-    const projectLinks = document.querySelectorAll('a[data-description]');
-    projectLinks.forEach(link => {
-        link.removeEventListener('click', openModal); // Prevent duplicate listeners
-        link.addEventListener('click', openModal);
-    });
+    // Use event delegation with capture phase to ensure it runs before other handlers
+    // This handles dynamic content and works after Barba transitions
+    document.addEventListener('click', function(e) {
+        const link = e.target.closest('a[data-description]');
+        if (link) {
+            openModal({ 
+                currentTarget: link, 
+                target: e.target,
+                preventDefault: () => e.preventDefault(), 
+                stopPropagation: () => e.stopPropagation() 
+            });
+        }
+    }, true);
 
-    // Close button
     closeBtn.addEventListener('click', closeModal);
 
-    // Click outside to close
     modal.addEventListener('click', (e) => {
         if (e.target === modal) {
             closeModal();
         }
     });
 
-    // ESC key to close
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape' && modal.classList.contains('active')) {
             closeModal();
