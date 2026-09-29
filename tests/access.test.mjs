@@ -38,3 +38,20 @@ test('an invalid access mode fails closed', async (t) => {
   const app = await runtime(t, { AUTH_SIGNUP_MODE: 'restrictd' });
   assert.equal((await app.request('/api/auth/get-session')).status, 503);
 });
+
+test('session renewal reaches the browser through protected routes and restricted auth routes', async (t) => {
+  for (const mode of ['public', 'restricted']) {
+    const app = await runtime(t, { AUTH_SIGNUP_MODE: mode }, undefined, example);
+    await app.db.prepare('INSERT INTO auth_membership (email) VALUES (?)').bind(email).run();
+    await verifiedUser(app);
+    const session = cookie(await app.request('/api/auth/sign-in/email', { email, password }));
+    const expires = new Date(Date.now() + 3600000).toISOString();
+    await app.db.prepare('UPDATE auth_session SET expiresAt = ?').bind(expires).run();
+    const path = mode === 'public' ? '/api/profile' : '/api/auth/get-session';
+    const renewed = await app.request(path, undefined, session);
+    assert.equal(renewed.status, 200);
+    assert.match(renewed.headers.getSetCookie().join(';'), /session_token=.*Max-Age=604800/i);
+    const updated = await app.db.prepare('SELECT expiresAt FROM auth_session').first();
+    assert.ok(new Date(updated.expiresAt).getTime() > Date.now() + 6 * 86400000);
+  }
+});

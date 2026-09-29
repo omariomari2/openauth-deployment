@@ -17,7 +17,7 @@ export default {
       request = bounded;
       const auth = createAuth(env, ctx);
       if (env.AUTH_SIGNUP_MODE === 'restricted' && request.headers.has('cookie') && path !== '/api/auth/sign-out') {
-        const session = await auth.api.getSession({ headers: request.headers });
+        const session = await auth.api.getSession({ headers: request.headers, query: { disableRefresh: true } });
         if (session && !await canAccess(env, session.user)) {
           return privateResponse(Response.json({ code: 'ACCESS_DENIED', message: 'Access is restricted' }, { status: 403 }));
         }
