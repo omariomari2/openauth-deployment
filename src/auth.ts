@@ -1,4 +1,5 @@
 import { betterAuth, type BetterAuthOptions } from 'better-auth';
+import { APIError } from 'better-auth/api';
 import { authOrigin, type AuthEnv } from './env.ts';
 import { sendAuthEmail } from './mail.ts';
 
@@ -13,6 +14,21 @@ export function authOptions(env: AuthEnv) {
     logger: { disabled: true },
     user: { modelName: 'auth_user' },
     account: { modelName: 'auth_account', accountLinking: { enabled: false } },
+    socialProviders: {
+      ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? {
+        google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
+      } : {}),
+      ...(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? {
+        github: { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET },
+      } : {}),
+    },
+    databaseHooks: {
+      session: { create: { before: async (session) => {
+        const user = await env.AUTH_DB.prepare('SELECT emailVerified FROM auth_user WHERE id = ?')
+          .bind(session.userId).first<{ emailVerified: number }>();
+        if (!user?.emailVerified) throw new APIError('FORBIDDEN', { message: 'Email verification required' });
+      } } },
+    },
     verification: { modelName: 'auth_verification' },
     session: {
       modelName: 'auth_session',

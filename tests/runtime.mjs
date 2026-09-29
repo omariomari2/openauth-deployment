@@ -9,7 +9,7 @@ const bundled = build({
   conditions: ['workerd', 'worker', 'browser'], external: ['node:*', 'cloudflare:*'],
 });
 
-export async function runtime(t, overrides = {}) {
+export async function runtime(t, overrides = {}, outbound) {
   const origin = overrides.AUTH_URL ?? 'https://app.example.test';
   const emails = [];
   const mf = new Miniflare(convertV4MiniflareOptions({
@@ -21,6 +21,7 @@ export async function runtime(t, overrides = {}) {
       RESEND_API_KEY: 'synthetic-key', EMAIL_FROM: 'Auth <auth@example.test>', ...overrides,
     },
     outboundService: async (request) => {
+      if (outbound && request.url !== 'https://api.resend.com/emails') return outbound(request);
       if (request.url !== 'https://api.resend.com/emails') throw new Error('Unexpected outbound request');
       emails.push(await request.json());
       return Response.json({ id: crypto.randomUUID() });
