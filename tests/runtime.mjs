@@ -3,17 +3,21 @@ import { readFile, readdir } from 'node:fs/promises';
 import { build } from 'esbuild';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 
-const bundled = build({
-  entryPoints: ['src/index.ts'], bundle: true, write: false, format: 'esm',
+const bundles = new Map();
+function bundle(entryPoint) {
+  if (!bundles.has(entryPoint)) bundles.set(entryPoint, build({
+  entryPoints: [entryPoint], bundle: true, write: false, format: 'esm',
   platform: 'neutral', target: 'es2022', mainFields: ['module', 'main'],
   conditions: ['workerd', 'worker', 'browser'], external: ['node:*', 'cloudflare:*'],
-});
+  }));
+  return bundles.get(entryPoint);
+}
 
-export async function runtime(t, overrides = {}, outbound) {
+export async function runtime(t, overrides = {}, outbound, entryPoint = 'src/index.ts') {
   const origin = overrides.AUTH_URL ?? 'https://app.example.test';
   const emails = [];
   const mf = new Miniflare(convertV4MiniflareOptions({
-    name: 'auth-test', modules: true, script: (await bundled).outputFiles[0].text,
+    name: 'auth-test', modules: true, script: (await bundle(entryPoint)).outputFiles[0].text,
     compatibilityDate: '2026-09-26', compatibilityFlags: ['nodejs_compat'],
     d1Databases: ['AUTH_DB'], cf: false,
     bindings: {

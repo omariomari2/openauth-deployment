@@ -1,0 +1,3 @@
+CREATE TABLE auth_membership (
+  email TEXT PRIMARY KEY COLLATE NOCASE NOT NULL
+);

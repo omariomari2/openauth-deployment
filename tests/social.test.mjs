@@ -96,3 +96,18 @@ test('OAuth rejects external redirects, missing state cookies and partial config
   const misconfigured = await runtime(t, { GOOGLE_CLIENT_ID: 'client-without-secret' });
   assert.equal((await misconfigured.request('/api/auth/get-session')).status, 503);
 });
+
+test('restricted membership applies to social signup and returning accounts', async (t) => {
+  const app = await runtime(t, { ...credentials, AUTH_SIGNUP_MODE: 'restricted' }, github());
+  const blocked = await authorize(app, 'github');
+  assert.equal((await app.request(blocked.path, undefined, blocked.cookie)).status, 403);
+  assert.equal((await app.db.prepare('SELECT COUNT(*) AS count FROM auth_user').first()).count, 0);
+  await app.db.prepare('INSERT INTO auth_membership (email) VALUES (?)').bind(email).run();
+  const allowed = await authorize(app, 'github');
+  const callback = await app.request(allowed.path, undefined, allowed.cookie);
+  assert.equal(callback.headers.get('location'), '/app');
+  await app.db.prepare('DELETE FROM auth_membership WHERE email = ?').bind(email).run();
+  assert.equal((await app.request('/api/auth/get-session', undefined, cookie(callback))).status, 403);
+  const returning = await authorize(app, 'github');
+  assert.equal((await app.request(returning.path, undefined, returning.cookie)).status, 403);
+});

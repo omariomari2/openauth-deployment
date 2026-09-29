@@ -2,6 +2,7 @@ import { betterAuth, type BetterAuthOptions } from 'better-auth';
 import { APIError } from 'better-auth/api';
 import { authOrigin, type AuthEnv } from './env.ts';
 import { sendAuthEmail } from './mail.ts';
+import { isMember } from './access.ts';
 
 export function authOptions(env: AuthEnv) {
   const origin = authOrigin(env);
@@ -23,10 +24,14 @@ export function authOptions(env: AuthEnv) {
       } : {}),
     },
     databaseHooks: {
+      user: { create: { before: async (user) => {
+        if (!await isMember(env, user.email)) throw new APIError('FORBIDDEN', { message: 'Access is restricted' });
+      } } },
       session: { create: { before: async (session) => {
-        const user = await env.AUTH_DB.prepare('SELECT emailVerified FROM auth_user WHERE id = ?')
-          .bind(session.userId).first<{ emailVerified: number }>();
+        const user = await env.AUTH_DB.prepare('SELECT email, emailVerified FROM auth_user WHERE id = ?')
+          .bind(session.userId).first<{ email: string; emailVerified: number }>();
         if (!user?.emailVerified) throw new APIError('FORBIDDEN', { message: 'Email verification required' });
+        if (!await isMember(env, user.email)) throw new APIError('FORBIDDEN', { message: 'Access is restricted' });
       } } },
     },
     verification: { modelName: 'auth_verification' },

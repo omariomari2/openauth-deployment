@@ -8,6 +8,7 @@ export interface AuthEnv {
   GOOGLE_CLIENT_SECRET?: string;
   GITHUB_CLIENT_ID?: string;
   GITHUB_CLIENT_SECRET?: string;
+  AUTH_SIGNUP_MODE?: 'public' | 'restricted';
 }
 
 export function authOrigin(env: AuthEnv): string {
@@ -18,7 +19,8 @@ export function authOrigin(env: AuthEnv): string {
       !env.AUTH_SECRET || env.AUTH_SECRET.length < 32 ||
       !env.RESEND_API_KEY || !env.EMAIL_FROM || /[\r\n]/.test(env.EMAIL_FROM) ||
       Boolean(env.GOOGLE_CLIENT_ID) !== Boolean(env.GOOGLE_CLIENT_SECRET) ||
-      Boolean(env.GITHUB_CLIENT_ID) !== Boolean(env.GITHUB_CLIENT_SECRET)) {
+      Boolean(env.GITHUB_CLIENT_ID) !== Boolean(env.GITHUB_CLIENT_SECRET) ||
+      (env.AUTH_SIGNUP_MODE !== undefined && !['public', 'restricted'].includes(env.AUTH_SIGNUP_MODE))) {
     throw new Error('Invalid auth configuration');
   }
   return url.origin;
