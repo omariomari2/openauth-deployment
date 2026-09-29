@@ -1,378 +1,169 @@
-# Go-Shop OpenAuth Server
+# Auth Gate
 
-Production-ready authentication server for Go-Shop e-commerce platform, deployed on Cloudflare Workers with OpenAuth.
+A reusable authentication backend for small projects on Cloudflare Workers. Build your own login screens, mount `/api/auth/*` in your project, and protect your API routes with `withAuth`.
 
-![Go-Shop Logo](https://ik.imagekit.io/dr5fryhth/logo1.png?updatedAt=1760472240746)
+The intended use is personal apps and small projects with roughly 600 users or fewer. Each project has its own users, database, and secret. The implementation uses **Cloudflare Workers + D1**, [Better Auth](https://www.better-auth.com/), and [Resend](https://resend.com/) for email. Better Auth and Resend are third-party services/libraries; Cloudflare provides the runtime and database.
 
-## Overview
+## What it handles
 
-This is a custom OpenAuth deployment for the **Go-Shop** e-commerce platform. It provides scalable, secure authentication using [OpenAuth](https://openauth.js.org/) on Cloudflare Workers, with data stored in [D1](https://developers.cloudflare.com/d1/) (SQLite) and [KV](https://developers.cloudflare.com/kv/) namespaces. The server supports both email/password and Google OAuth authentication flows.
+- Email/password signup, required email verification, login, logout, and password resets.
+- Google and GitHub login with verified email addresses and automatic account linking disabled.
+- Public signup or an email allowlist for private projects.
+- HttpOnly cookie sessions, Secure cookies on HTTPS, and session revocation after password resets or membership removal.
+- Database-backed request limits and email budgets.
+- A frontend client and a Worker middleware helper. Your app supplies its pages and business permissions.
 
-### Key Features
+Auth endpoints and your frontend must share an origin, such as `https://app.example.com`. This is a per-project auth gate; it does not provide a shared identity service across unrelated domains. KV and Cloudflare Access are not required.
 
-- **Dual Authentication Methods**: Email/password and Google OAuth
-- **E-commerce Ready**: Extended user schema with first name, last name, avatar, role, and address support
-- **Client SDK**: TypeScript SDK for easy frontend integration (React, Vue, Angular, Vanilla JS)
-- **Authentication Middleware**: Route protection, role-based access control, and rate limiting
-- **Token Validation Helpers**: JWT parsing, expiration checks, and user extraction utilities
-- **CORS Support**: Built-in CORS headers for cross-origin requests
-- **Production Ready**: Observability enabled by default for monitoring and debugging
+## Run locally
 
-### Architecture
+Use Node.js 24+ and npm 11.
 
-```
-┌─────────────────┐
-│   Frontend App  │
-│   (Go-Shop UI)  │
-└────────┬────────┘
-         │
-         │ OAuth Flow / API Calls
-         │
-┌────────▼────────────────────────────┐
-│   OpenAuth Worker                   │
-│   (Cloudflare Workers)              │
-│                                     │
-│   • Password Provider               │
-│   • Google OAuth Provider           │
-│   • User Management                 │
-│   • Token Issuance                  │
-└──────┬──────────────────┬───────────┘
-       │                  │
-       │                  │
-   ┌───▼────┐      ┌──────▼──────┐
-   │   D1   │      │     KV      │
-   │Database│      │  Namespace  │
-   │(Users) │      │  (Sessions) │
-   └────────┘      └─────────────┘
+```sh
+npm ci
+node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
 ```
 
-## Setup Steps
+Create an ignored `.dev.vars` file, using the generated value for `AUTH_SECRET`:
 
-### Prerequisites
-
-- Node.js 18+ installed
-- Cloudflare account with Workers enabled
-- Google Cloud Console account (for OAuth)
-
-### 1. Install Dependencies
-
-```bash
-npm install
+```dotenv
+AUTH_SECRET="paste-generated-secret-here"
+RESEND_API_KEY="re_your_key"
+EMAIL_FROM="Your App <auth@your-domain.com>"
 ```
 
-### 2. Configure Google OAuth
+Verify your sending domain in Resend and use an address on that domain. Local development sends real email through Resend; the automated tests mock external email and OAuth services.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select an existing one
-3. Enable Google+ API
-4. Create OAuth 2.0 credentials:
-   - Application type: Web application
-   - Authorized redirect URIs: `https://your-worker.workers.dev/callback`
-5. Copy your Client ID and Client Secret
-
-### 3. Create Cloudflare Resources
-
-```bash
-npm run db:create AUTH_DBD1Database
-
-npm run kv:create AUTH_STORAGE
+```sh
+npm run migrate:local
+npm run dev
 ```
 
-Update `wrangler.json` with the generated IDs.
+The API runs at `http://localhost:8787`, matching the default `AUTH_URL` in `wrangler.json`. When connecting your frontend, serve it under the same origin or use a development proxy that preserves that public origin. A frontend on another port is a different origin.
 
-### 4. Set Up Secrets
+## Drop it into a project
 
-```bash
-npm run setup:secrets
+Use [the Worker example](examples/api-protection/worker.ts) as the starting point. It routes auth requests to `authGate.fetch(request, env, ctx)` and protects `/api/profile` with `withAuth`. Keep your application's other routes in its own Worker handler.
+
+```ts
+import { withAuth } from './src/middleware/auth.ts';
+
+const profile = withAuth((_request, _env, _ctx, user) =>
+  Response.json({ id: user.id, email: user.email, name: user.name }),
+);
 ```
 
-When prompted, enter:
-- Google Client ID
-- Google Client Secret
+The app Worker needs the `AUTH_DB` binding and auth configuration below. Mounting this code into an existing Worker also requires the `better-auth` dependency and `nodejs_compat` compatibility flag from this repository. `withAuth` checks the session and membership on each request, forwards renewed cookies, and checks the origin of requests that can modify data. `getUser(request, env)` is available for a session read without renewal.
 
-### 5. Run Database Migrations
+On the frontend:
 
-```bash
-npm run migrate
-```
+```ts
+import { createAuthClient } from './src/client-sdk.ts';
 
-This creates the user table with extended e-commerce fields:
-- `id`, `email`, `created_at` (base fields)
-- `first_name`, `last_name`, `avatar_url`, `last_login` (extended fields)
-- Support for ecommerce tables (products, orders, cart, addresses)
+const auth = createAuthClient();
 
-### 6. Deploy to Cloudflare
-
-```bash
-npm run deploy
-```
-
-Your OpenAuth server is now live at `https://openauth-deployment.workers.dev`
-
-## Usage
-
-### Frontend Integration
-
-#### Using the Client SDK
-
-```typescript
-import { AuthClient } from './src/client-sdk';
-
-const auth = new AuthClient({
-  authServerUrl: 'https://openauth-deployment.workers.dev',
-  clientId: 'go-shop',
-  redirectUri: window.location.origin + '/auth/callback',
-  scope: 'openid profile email'
+const { data, error } = await auth.signIn.email({
+  email: 'you@example.com',
+  password: 'your-password-here',
 });
 
-auth.login();
-
-const user = await auth.getCurrentUser();
-console.log(user);
+const session = await auth.getSession();
+await auth.signOut();
 ```
 
-#### Using the React Hook
+Handle each operation's `error` in your UI. The client uses cookies; you do not need to store auth tokens in local storage. [The frontend example](examples/frontend-integration/client.ts) also includes signup, social login, and password-reset calls. Build the `/login`, `/app`, and `/reset-password` pages used by those examples, or change their callback paths to yours.
 
-```typescript
-import { useAuth } from './src/client-sdk';
-
-function App() {
-  const { user, isLoading, isAuthenticated, login, logout } = useAuth({
-    authServerUrl: 'https://openauth-deployment.workers.dev',
-    clientId: 'go-shop',
-    redirectUri: window.location.origin + '/auth/callback'
-  });
-
-  if (isLoading) return <div>Loading...</div>;
-
-  return (
-    <div>
-      {isAuthenticated ? (
-        <>
-          <p>Welcome, {user?.first_name}!</p>
-          <button onClick={logout}>Logout</button>
-        </>
-      ) : (
-        <button onClick={login}>Login</button>
-      )}
-    </div>
-  );
-}
-```
-
-### API Protection
-
-Use the middleware to protect your API routes:
-
-```typescript
-import { requireAuth, requireRole } from './src/middleware/auth';
-
-export default {
-  async fetch(request: Request, env: Env) {
-    const authResult = await requireAuth(request, env);
-    if (!authResult.authorized) {
-      return authResult.response;
-    }
-
-    const user = authResult.user;
-    return new Response(`Hello, ${user.email}!`);
-  }
-};
-```
-
-### Role-Based Access Control
-
-```typescript
-import { requireRole } from './src/middleware/auth';
-
-const adminResult = await requireRole(request, env, 'admin');
-if (!adminResult.authorized) {
-  return adminResult.response;
-}
-```
-
-## Project Structure
-
-```
-openauth-deployment/
-├── src/
-│   ├── index.ts                    # Main OpenAuth server
-│   ├── client-sdk.ts               # Frontend SDK with React hooks
-│   ├── middleware/
-│   │   └── auth.ts                 # Authentication & RBAC middleware
-│   └── helpers/
-│       └── token-validation.ts     # JWT utilities
-├── migrations/
-│   ├── 0001_create_user_table.sql
-│   ├── 0002_extend_user_for_ecommerce.sql
-│   └── 0003_create_ecommerce_tables.sql
-├── examples/
-│   ├── frontend-integration/
-│   │   ├── react-example.tsx
-│   │   ├── vanilla-js.html
-│   │   └── README.md
-│   └── api-protection/
-│       └── worker.ts
-├── wrangler.json                   # Cloudflare Worker config
-├── package.json
-└── tsconfig.json
-```
-
-## Available Scripts
-
-### Development
-- `npm run dev` - Start local development server
-- `npm run build` - Build TypeScript files
-- `npm run check` - Validate deployment (dry-run)
-
-### Deployment
-- `npm run deploy` - Deploy to production
-- `npm run deploy:dev` - Deploy to development environment
-- `npm run deploy:prod` - Deploy to production environment
-
-### Database Management
-- `npm run migrate` - Apply migrations to remote database
-- `npm run migrate:local` - Apply migrations locally
-- `npm run db:query` - Execute SQL query
-- `npm run db:tables` - List all tables
-- `npm run db:users` - View users table
-
-### Secrets Management
-- `npm run setup:secrets` - Configure OAuth secrets
-- `npm run secrets:list` - List configured secrets
-
-### Monitoring
-- `npm run logs` - Tail production logs
-- `npm run logs:dev` - Tail development logs
+Passwords must be 12–128 characters. Verification links last one hour; reset tokens last 30 minutes and can be consumed once. Verification does not automatically sign the user in. Sessions last seven days and renew after a day of activity through the session endpoint or protected middleware.
 
 ## Configuration
 
-### Theme Customization
+| Setting | Purpose |
+| --- | --- |
+| `AUTH_DB` | D1 database binding; use a separate database for each project. |
+| `AUTH_URL` | Exact frontend/Worker origin, with no path, query, or fragment. HTTPS is required except on localhost. |
+| `AUTH_SECRET` | Random secret of at least 32 characters; generate a different one for each project. |
+| `RESEND_API_KEY` | Resend API key. Required by the current configuration. |
+| `EMAIL_FROM` | Sender address on your verified Resend domain. |
+| `AUTH_SIGNUP_MODE` | `public` (default) or `restricted`. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Optional Google login; supply both or neither. |
+| `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | Optional GitHub login; supply both or neither. |
 
-The authentication UI is branded for Go-Shop:
+Register these exact callback URLs with the providers, replacing the origin with your `AUTH_URL`:
 
-```typescript
-theme: {
-  title: "Go-Shop",
-  primary: "#FFF8DC",
-  favicon: "https://ik.imagekit.io/dr5fryhth/logo1.png?updatedAt=1760472240746",
-  logo: {
-    dark: "https://ik.imagekit.io/dr5fryhth/logo1.png?updatedAt=1760472240746",
-    light: "https://ik.imagekit.io/dr5fryhth/logo1.png?updatedAt=1760472240746",
-  },
-}
+```text
+https://app.example.com/api/auth/callback/google
+https://app.example.com/api/auth/callback/github
 ```
 
-### Environment Variables
+Provider callbacks are handled by the backend. Your frontend receives the final redirect specified by `callbackURL`, which must stay on your app's origin.
 
-Required secrets (set via `wrangler secret put`):
-- `GOOGLE_CLIENT_ID` - Google OAuth Client ID
-- `GOOGLE_CLIENT_SECRET` - Google OAuth Client Secret
+### Restricted projects
 
-Bindings (configured in `wrangler.json`):
-- `AUTH_STORAGE` - KV namespace for session storage
-- `AUTH_DB` - D1 database for user data
+Set `AUTH_SIGNUP_MODE` to `restricted`, then manage allowed emails:
 
-## API Endpoints
-
-### OpenAuth Endpoints
-
-- `GET /` - Initiates OAuth flow (redirects to `/authorize`)
-- `GET /authorize` - Authorization endpoint
-- `POST /token` - Token exchange endpoint
-- `GET /userinfo` - Get current user information
-- `GET /callback` - OAuth callback handler
-
-### Supported OAuth Flows
-
-- Authorization Code Flow
-- Refresh Token Flow
-- Password Grant (email verification)
-- Google OAuth 2.0
-
-## Security Features
-
-- **CSRF Protection**: State parameter validation
-- **Rate Limiting**: Built-in rate limiting middleware
-- **Token Expiration**: Automatic token refresh
-- **Secure Token Storage**: httpOnly cookie support
-- **CORS**: Configurable cross-origin policies
-- **Input Sanitization**: User data validation with Valibot
-
-## Monitoring & Debugging
-
-View real-time logs:
-
-```bash
-npm run logs
+```sh
+npm run member -- add person@example.com --local
+npm run member -- remove person@example.com --local
 ```
 
-Query database:
+Use `--remote` to manage the deployed database. Both password and social login obey the allowlist. Removing a member also deletes their sessions. Signup returns a generic response for disallowed or existing addresses; a success response does not necessarily mean an account was created.
 
-```bash
-npm run db:query "SELECT * FROM user WHERE email = 'user@example.com';"
+## Deploy on Cloudflare
+
+1. Stay on the Workers Free and Resend Free plans. Verify your sending domain in Resend.
+2. Run `npx wrangler login`, then `npx wrangler d1 create my-project-auth`.
+3. Set a unique Worker `name` in `wrangler.json`. Update the `AUTH_DB` entry with the created database's `database_name` and `database_id`.
+4. Set `vars.AUTH_URL` to your public app origin and add `vars.EMAIL_FROM`. Set `vars.AUTH_SIGNUP_MODE` if the project is restricted.
+5. Mount the auth handler in your app Worker and route it to that origin. The repository's default `src/index.ts` serves auth endpoints and `/health`; your app must serve its frontend and protected business routes.
+6. Add secrets, apply migrations, and deploy:
+
+```sh
+npx wrangler secret put AUTH_SECRET
+npx wrangler secret put RESEND_API_KEY
+npm run migrate:remote
+npm run deploy
 ```
 
-Check user count:
+For social login, also set the corresponding `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` or `GITHUB_CLIENT_ID`/`GITHUB_CLIENT_SECRET` using `wrangler secret put`. Keep secrets out of `wrangler.json` and Git.
 
-```bash
-npm run db:query "SELECT COUNT(*) as total FROM user;"
+### Free-tier limits
+
+| Service | Free allowance |
+| --- | --- |
+| [Workers](https://developers.cloudflare.com/workers/platform/limits/) | 100,000 requests/day per account; 10 ms CPU per request. |
+| [D1](https://developers.cloudflare.com/d1/platform/pricing/) | 5 million rows read/day, 100,000 rows written/day, 5 GB total storage. |
+| [Resend](https://resend.com/pricing) | 3,000 transactional emails/month, capped at 100/day. |
+
+The code reserves at most 100 email sends/day, 3,000/month, and five/day per recipient, using UTC calendar boundaries. These guards apply per deployment; projects sharing a Resend account still share its provider quota. Failed sends can consume the local budget. Email runs in the background, so request success does not guarantee delivery; check Worker logs for `auth_email_limit_reached` or `auth_email_delivery_failed`.
+
+Free service limits and an existing domain are the target, not a guarantee based on user count. Production password-hashing CPU usage still needs measurement on Workers Free. The local tests do not prove it fits the 10 ms limit. Domain registration/renewal is separate from hosting costs.
+
+## Endpoints
+
+All auth routes are under `/api/auth`. POST requests use JSON.
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/sign-up/email` | Create a password account and request verification. |
+| POST | `/sign-in/email` | Sign in after email verification. |
+| POST | `/sign-in/social` | Start Google or GitHub login. |
+| GET | `/get-session` | Read or renew the current session. |
+| POST | `/sign-out` | Revoke the current session. |
+| POST | `/send-verification-email` | Request another verification email. |
+| GET | `/verify-email` | Handle the emailed verification link. |
+| POST | `/request-password-reset` | Request a reset email. |
+| POST | `/reset-password` | Consume a reset token and change the password. |
+
+`GET /health` is a liveness endpoint. It does not validate your database, credentials, or email delivery.
+
+## Checks and migration
+
+```sh
+npm test
+npm run check
+npm audit --omit=dev
 ```
 
-## Examples
+The suite covers auth flows in the local Workers runtime, provider callbacks with mocked external services, access removal, cookie renewal, request/email limits, the D1 schema, and the frontend bundle. `check` runs TypeScript and a Wrangler deployment dry run. Live provider/email flows and production capacity require separate verification.
 
-See the `examples/` directory for:
-- **Frontend Integration**: React, Vue, Angular, Vanilla JS examples
-- **API Protection**: Worker middleware examples
-- **Full OAuth Flow**: Complete authentication flow demonstrations
-
-## Troubleshooting
-
-### Common Issues
-
-**CORS Errors**
-- Ensure your worker has proper CORS headers
-- Use the `corsHeaders` helper from middleware
-
-**Token Refresh Failures**
-- Check that refresh tokens are being stored properly
-- Verify token expiration times
-
-**Google OAuth Issues**
-- Verify redirect URI matches exactly
-- Check that Google OAuth credentials are correct
-- Ensure Google+ API is enabled
-
-**Database Issues**
-- Run migrations: `npm run migrate`
-- Check table structure: `npm run db:tables`
-
-### Debug Mode
-
-Enable debug logging in the worker:
-
-```typescript
-console.log('Auth attempt:', { email, timestamp: Date.now() });
-```
-
-View logs in real-time:
-
-```bash
-npm run logs
-```
-
-## ARM Architecture Support
-
-If you're on ARM CPU (Apple Silicon, Windows ARM), note that Wrangler's `workerd` may not support ARM64. Consider:
-- Using GitHub Codespaces
-- WSL2 on Windows
-- Docker containers
-- Direct deployment workflow (edit locally, deploy remotely)
-
-## Contributing
-
-This is a private deployment for Go-Shop. For OpenAuth issues and contributions, visit the [OpenAuth repository](https://github.com/openauthjs/openauth).
-
-## License
-
-This deployment is part of the Go-Shop e-commerce platform. OpenAuth is MIT licensed.
+This replaces the original OpenAuth/Go-Shop implementation. Old migrations remain to preserve existing tables; new auth data uses `auth_*` tables. Existing OpenAuth users and sessions are not migrated automatically. The former token SDK, `/userinfo` endpoint, and role helpers are no longer part of this implementation.
