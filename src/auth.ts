@@ -4,7 +4,7 @@ import { authOrigin, type AuthEnv } from './env.ts';
 import { sendAuthEmail } from './mail.ts';
 import { isMember } from './access.ts';
 
-export function authOptions(env: AuthEnv) {
+export function authOptions(env: AuthEnv, ctx?: Pick<ExecutionContext, 'waitUntil'>) {
   const origin = authOrigin(env);
   return {
     database: env.AUTH_DB,
@@ -14,7 +14,7 @@ export function authOptions(env: AuthEnv) {
     trustedOrigins: [origin],
     logger: { disabled: true },
     user: { modelName: 'auth_user' },
-    account: { modelName: 'auth_account', accountLinking: { enabled: false } },
+    account: { modelName: 'auth_account', accountLinking: { enabled: false }, encryptOAuthTokens: true },
     socialProviders: {
       ...(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? {
         google: { clientId: env.GOOGLE_CLIENT_ID, clientSecret: env.GOOGLE_CLIENT_SECRET },
@@ -43,6 +43,7 @@ export function authOptions(env: AuthEnv) {
     },
     rateLimit: { enabled: true, storage: 'database', modelName: 'auth_rate_limit' },
     advanced: {
+      ...(ctx ? { backgroundTasks: { handler: (promise: Promise<unknown>) => ctx.waitUntil(promise) } } : {}),
       cookiePrefix: 'auth-gate',
       useSecureCookies: origin.startsWith('https:'),
       ipAddress: { ipAddressHeaders: ['cf-connecting-ip'] },
@@ -66,6 +67,6 @@ export function authOptions(env: AuthEnv) {
   } satisfies BetterAuthOptions;
 }
 
-export function createAuth(env: AuthEnv) {
-  return betterAuth(authOptions(env));
+export function createAuth(env: AuthEnv, ctx?: Pick<ExecutionContext, 'waitUntil'>) {
+  return betterAuth(authOptions(env, ctx));
 }

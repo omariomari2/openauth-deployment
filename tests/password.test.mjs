@@ -7,6 +7,7 @@ test('password accounts require verification and establish revocable sessions', 
   const signup = await app.request('/api/auth/sign-up/email', { name: 'Alice', email, password, callbackURL: '/app' });
   assert.equal(signup.status, 200);
   assert.equal((await signup.json()).token, null);
+  await app.waitForEmails(1);
   assert.equal(app.emails.length, 1);
   assert.deepEqual(app.emails[0].to, [email]);
   assert.equal((await app.request('/api/auth/sign-in/email', { email, password })).status, 403);
@@ -29,6 +30,7 @@ test('reset tokens are consumed and old sessions and passwords stop working', as
   await verifiedUser(app);
   const sessionCookie = cookie(await app.request('/api/auth/sign-in/email', { email, password }));
   assert.equal((await app.request('/api/auth/request-password-reset', { email, redirectTo: '/reset' })).status, 200);
+  await app.waitForEmails(2);
   const redirect = await app.request(emailUrl(app.emails.at(-1)));
   const token = new URL(redirect.headers.get('location'), app.origin).searchParams.get('token');
   const reset = { token, newPassword: 'New-synthetic-password-54321!' };

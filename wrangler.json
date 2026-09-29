@@ -6,5 +6,5 @@
   "compatibility_flags": ["nodejs_compat"],
   "d1_databases": [{ "binding": "AUTH_DB", "database_name": "auth-gate" }],
   "vars": { "AUTH_URL": "http://localhost:8787" },
-  "observability": { "enabled": true }
+  "observability": { "enabled": true, "logs": { "invocation_logs": false } }
 }

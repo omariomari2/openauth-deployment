@@ -7,6 +7,6 @@ const profile = withAuth((_request, _env, _ctx, user) => Response.json({ id: use
 export default {
   fetch(request: Request, env: AuthEnv, ctx: ExecutionContext): Promise<Response> {
     if (new URL(request.url).pathname === '/api/profile') return profile(request, env, ctx);
-    return authGate.fetch(request, env);
+    return authGate.fetch(request, env, ctx);
   },
 };

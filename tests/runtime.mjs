@@ -6,9 +6,9 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 const bundles = new Map();
 function bundle(entryPoint) {
   if (!bundles.has(entryPoint)) bundles.set(entryPoint, build({
-  entryPoints: [entryPoint], bundle: true, write: false, format: 'esm',
-  platform: 'neutral', target: 'es2022', mainFields: ['module', 'main'],
-  conditions: ['workerd', 'worker', 'browser'], external: ['node:*', 'cloudflare:*'],
+    entryPoints: [entryPoint], bundle: true, write: false, format: 'esm',
+    platform: 'neutral', target: 'es2022', mainFields: ['module', 'main'],
+    conditions: ['workerd', 'worker', 'browser'], external: ['node:*', 'cloudflare:*'],
   }));
   return bundles.get(entryPoint);
 }
@@ -41,6 +41,13 @@ export async function runtime(t, overrides = {}, outbound, entryPoint = 'src/ind
   }
   return {
     db, emails, origin,
+    async waitForEmails(count) {
+      const deadline = Date.now() + 10000;
+      while (emails.length < count) {
+        if (Date.now() > deadline) throw new Error(`Expected ${count} emails, received ${emails.length}`);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    },
     async request(path, body, cookie, headers = {}) {
       let timer;
       return Promise.race([
@@ -63,6 +70,7 @@ export const emailUrl = (message) => message.text.split('\n\n')[1];
 export async function verifiedUser(app) {
   const signup = await app.request('/api/auth/sign-up/email', { name: 'Alice', email, password, callbackURL: '/app' });
   if (signup.status !== 200) throw new Error(`Signup failed: ${signup.status}`);
+  await app.waitForEmails(1);
   const verification = await app.request(emailUrl(app.emails.at(-1)));
   if (verification.status !== 302) throw new Error(`Verification failed: ${verification.status}`);
 }

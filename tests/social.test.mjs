@@ -40,6 +40,8 @@ test('GitHub uses verified private email, PKCE and single-use state', async (t) 
   assert.equal(new URL(callback.headers.get('location'), app.origin).href, `${app.origin}/app`);
   const session = await app.request('/api/auth/get-session', undefined, cookie(callback));
   assert.equal((await session.json()).user.email, email);
+  const account = await app.db.prepare("SELECT accessToken FROM auth_account WHERE providerId = 'github'").first();
+  assert.notEqual(account.accessToken, 'synthetic-access');
   const replay = await app.request(auth.path, undefined, auth.cookie);
   assert.match(replay.headers.get('location'), /error=/);
   assert.doesNotMatch(cookie(replay), /session_token=.+/);
