@@ -10,5 +10,5 @@
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "examples/api-protection/**/*.ts"]
+  "include": ["src/**/*.ts", "examples/**/*.ts"]
 }

@@ -2,6 +2,8 @@ import { createAuth } from '../auth.ts';
 import { canAccess } from '../access.ts';
 import { authOrigin, type AuthEnv } from '../env.ts';
 
+export type { AuthEnv } from '../env.ts';
+
 export type User = NonNullable<Awaited<ReturnType<ReturnType<typeof createAuth>['api']['getSession']>>>['user'];
 
 export async function getUser(request: Request, env: AuthEnv): Promise<User | null> {
