@@ -1,5 +1,5 @@
-private OpenAuth integration for Go-Shop on Cloudflare Workers.
-The repository contains authentication code, D1 migrations, KV configuration, and client integration examples.
+private OpenAuth integration for Go-Shop on Cloudflare Workers, utilizing [dropAuth](https://github.com/omariomari2/openauth_exploration)
+The repository contains authentication code, D1 migrations, KV configuration, and client integration examples
 
 ## Work locally
 
